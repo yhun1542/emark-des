@@ -21,6 +21,8 @@ RUN echo "--- Web stage tree ---" && ls -la && echo "--- src ---" && ls -la src 
 
 RUN echo "--- Web stage tree ---" && ls -la && echo "--- src ---" && ls -la src || true && echo "--- src/lib ---" && ls -la src/lib || true && echo "--- App.tsx head ---" && head -n 20 src/App.tsx || true 
 
+RUN echo "--- Web stage tree ---" && ls -la && echo "--- src ---" && ls -la src || true && echo "--- src/lib ---" && ls -la src/lib || true && echo "--- App.tsx head ---" && head -n 20 src/App.tsx || true 
+
 RUN npm run build
 
 # 2) Python runtime

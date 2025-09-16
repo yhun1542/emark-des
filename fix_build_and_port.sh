@@ -1,39 +1,24 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# =========================
-# Emark DES one-shot fixer
-# - Fix Vite build (ensure app/src/lib/api.ts)
-# - Fix Gunicorn PORT expansion in Dockerfile
-# - Add webbuild debug + cache-bust
-# - (Optional) create railway.toml for monorepo
-# - Commit & push
-# - (Optional) Railway deploy & health check
-# =========================
-
-# ---- CONFIG (envs override) ----
-GIT_REMOTE_URL="${GIT_REMOTE_URL:-}"          # e.g. https://github.com/<ORG_OR_USER>/<REPO>.git
-RAILWAY_TOKEN="${RAILWAY_TOKEN:-}"            # railway token (optional)
+# ===== 설정(필요 시 외부에서 export) =====
+GIT_REMOTE_URL="${GIT_REMOTE_URL:-}"               # 예) https://github.com/<ORG_OR_USER>/<REPO>.git
+RAILWAY_TOKEN="${RAILWAY_TOKEN:-}"                 # Railway Personal Token
 RAILWAY_SERVICE="${RAILWAY_SERVICE:-emark-des}"
 CACHE_BUST="${CACHE_BUST:-$(date +%s)}"
 HEALTH_PATH="${HEALTH_PATH:-/health}"
 STREAM_TEST_Q="${STREAM_TEST_Q:-ping}"
+APP_URL="${APP_URL:-}"                              # 배포 URL 있으면 헬스/SSE 확인
 
-# ---- Sanity checks ----
-if [[ ! -f "Dockerfile" ]]; then
-  echo "❌ Dockerfile not found at repo root. Run this in repo root."
-  exit 1
-fi
-if [[ ! -d "app/src" ]]; then
-  echo "❌ app/src not found. Are you in the monorepo root?"
-  exit 1
-fi
+# ===== 사전 체크 =====
+[[ -f Dockerfile ]] || { echo "❌ Dockerfile not found at repo root"; exit 1; }
+[[ -d app/src ]] || { echo "❌ app/src not found (run in monorepo root)"; exit 1; }
 
-# ---- Step 1: ensure app/src/lib/api.ts exists ----
+# ===== 1) api.ts 존재 보장 =====
 mkdir -p app/src/lib
 API_TS="app/src/lib/api.ts"
 if [[ ! -f "$API_TS" ]]; then
-  cat > "$API_TS" <<'TS'
+cat > "$API_TS" <<'TS'
 const API_BASE = import.meta.env.VITE_API_BASE || "";
 
 export function startStream(question: string, onMessage:(d:any)=>void, onEnd?:()=>void) {
@@ -46,8 +31,7 @@ export function startStream(question: string, onMessage:(d:any)=>void, onEnd?:()
 
 export async function askTop(session:any, prompt?:string) {
   const res = await fetch(`${API_BASE}/api/askTop`.replace('//api','/api'), {
-    method:"POST",
-    headers:{ "Content-Type":"application/json" },
+    method:"POST", headers:{ "Content-Type":"application/json" },
     body: JSON.stringify({ session, prompt })
   });
   return await res.json();
@@ -55,103 +39,75 @@ export async function askTop(session:any, prompt?:string) {
 TS
   echo "✅ Added $API_TS"
 else
-  echo "ℹ️  $API_TS already exists (keeping)"
+  echo "ℹ️  $API_TS already exists"
 fi
 
-# ---- Step 2: patch Dockerfile webbuild stage (cache-bust + debug ls) ----
-if ! grep -q 'ARG CACHE_BUST' Dockerfile; then
-  # Insert ARG after FROM node:... AS webbuild
-  awk '
+# ===== 2) Dockerfile: webbuild 캐시버스트 + 디버그 RUN =====
+if ! grep -Fq 'ARG CACHE_BUST' Dockerfile; then
+  awk -v stamp="$CACHE_BUST" '
     BEGIN{done=0}
-    {
-      print $0
-      if ($0 ~ /^FROM .* AS webbuild/ && done==0) {
-        print "ARG CACHE_BUST=1"
-        print "RUN echo \"CACHE_BUST=${CACHE_BUST}\""
-        done=1
-      }
-    }' CACHE_BUST="$CACHE_BUST" Dockerfile > Dockerfile.tmp && mv Dockerfile.tmp Dockerfile
-  echo "✅ Added ARG CACHE_BUST to webbuild stage"
-else
-  echo "ℹ️  Dockerfile already has ARG CACHE_BUST"
+    {print}
+    /^FROM .* AS webbuild/ && !done { print "ARG CACHE_BUST=" stamp; print "RUN echo \"CACHE_BUST=" stamp "\""; done=1 }
+  ' Dockerfile > Dockerfile.tmp && mv Dockerfile.tmp Dockerfile
+  echo "✅ Added ARG CACHE_BUST to webbuild"
 fi
 
-# Ensure debug listing once before npm run build
 if ! grep -q "Web stage tree" Dockerfile; then
-  # Insert debug RUN right before "RUN npm run build" in webbuild stage
   perl -0777 -pe 's/RUN npm run build/RUN echo \"--- Web stage tree ---\" \&\& ls -la \&\& echo \"--- src ---\" \&\& ls -la src \|\| true \&\& echo \"--- src\/lib ---\" \&\& ls -la src\/lib \|\| true \&\& echo \"--- App.tsx head ---\" \&\& head -n 20 src\/App.tsx \|\| true \n\nRUN npm run build/;' Dockerfile > Dockerfile.tmp && mv Dockerfile.tmp Dockerfile
   echo "✅ Added debug listing before Vite build"
-else
-  echo "ℹ️  Dockerfile already has webbuild debug listing"
 fi
 
-# ---- Step 3: fix Gunicorn PORT expansion (CMD) ----
-# Replace any existing CMD line with sh -c variant that expands ${PORT}
+# ===== 3) Dockerfile: Gunicorn CMD를 sh -c로 (PORT 확장) =====
 if grep -q '^CMD \["gunicorn' Dockerfile; then
   perl -0777 -pe 's#^CMD \[.*gunicorn[^\n]*\]\s*$#CMD ["sh","-c","gunicorn -k gevent -w \\${WORKERS:-1} --access-logfile - --error-logfile - -t 0 -b 0.0.0.0:\\${PORT} app:app"]#m;' Dockerfile > Dockerfile.tmp && mv Dockerfile.tmp Dockerfile
   echo "✅ Replaced exec-form CMD with sh -c (PORT expansion)"
 elif grep -q '^CMD \["sh","-c"' Dockerfile; then
-  # Update to enforce PORT usage
   perl -0777 -pe 's#^CMD \["sh","-c",.*\]\s*$#CMD ["sh","-c","gunicorn -k gevent -w \\${WORKERS:-1} --access-logfile - --error-logfile - -t 0 -b 0.0.0.0:\\${PORT} app:app"]#m;' Dockerfile > Dockerfile.tmp && mv Dockerfile.tmp Dockerfile
   echo "✅ Updated sh -c CMD to bind 0.0.0.0:\${PORT}"
 else
-  # Append if missing
   cat >> Dockerfile <<'DOCKER'
 CMD ["sh","-c","gunicorn -k gevent -w \${WORKERS:-1} --access-logfile - --error-logfile - -t 0 -b 0.0.0.0:\${PORT} app:app"]
 DOCKER
   echo "✅ Added sh -c CMD for Gunicorn"
 fi
 
-# ---- Step 4: optional railway.toml (for monorepo explicit Dockerfile) ----
-if [[ ! -f "railway.toml" ]]; then
-  cat > railway.toml <<'TOML'
+# ===== 4) railway.toml (명시적 빌드) =====
+if [[ ! -f railway.toml ]]; then
+cat > railway.toml <<'TOML'
 [build]
 builder = "DOCKERFILE"
 dockerfilePath = "./Dockerfile"
 TOML
   echo "✅ Created railway.toml"
-else
-  echo "ℹ️  railway.toml already exists"
 fi
 
-# ---- Step 5: Git commit/push (optional remote auto-init) ----
+# ===== 5) Git 커밋/푸시 (옵션) =====
 if [[ -n "${GIT_REMOTE_URL}" ]]; then
-  if [[ ! -d ".git" ]]; then
-    git init
-    git checkout -b main
-  fi
+  [[ -d .git ]] || { git init && git checkout -b main; }
   git add .
-  git commit -m "chore: fix Vite lib/api.ts & Gunicorn PORT; add cache-bust/debug/railway.toml" || true
-  if ! git remote | grep -q origin; then
-    git remote add origin "${GIT_REMOTE_URL}"
-  fi
+  git commit -m "chore: fix api.ts & PORT expansion; add webbuild debug/cache-bust/railway.toml" || true
+  git remote | grep -q origin || git remote add origin "${GIT_REMOTE_URL}"
   git push -u origin main
   echo "✅ Pushed to ${GIT_REMOTE_URL}"
-else
-  echo "ℹ️  GIT_REMOTE_URL not set; skipped push"
 fi
 
-# ---- Step 6: Railway deploy (optional) ----
+# ===== 6) Railway 배포 (로그인 호출 없이 전역 --token 사용) =====
 if [[ -n "${RAILWAY_TOKEN}" ]]; then
-  if ! command -v railway >/dev/null 2>&1; then
-    npm i -g @railway/cli
-  fi
-  railway login --token "${RAILWAY_TOKEN}"
-  railway up --service "${RAILWAY_SERVICE}"
-  echo "🚀 Railway deploy triggered for service=${RAILWAY_SERVICE}"
+  command -v railway >/dev/null 2>&1 || npm i -g @railway/cli
+  railway --token "${RAILWAY_TOKEN}" up --service "${RAILWAY_SERVICE}"
+  echo "🚀 Railway deploy triggered (service=${RAILWAY_SERVICE})"
 else
-  echo "ℹ️  RAILWAY_TOKEN not set; skipped railway up"
+  echo "ℹ️  RAILWAY_TOKEN not set; skip deploy"
 fi
 
-# ---- Step 7: Health check (optional URL autodetect requires env) ----
-APP_URL="${APP_URL:-}"
+# ===== 7) 헬스 & 스트림 검사 (옵션) =====
 if [[ -n "${APP_URL}" ]]; then
-  echo "⏳ Waiting 10s for app to come up..."
-  sleep 10
+  echo "⏳ wait 10s"; sleep 10
   echo "➡️  GET ${APP_URL}${HEALTH_PATH}"
   curl -fsS "${APP_URL}${HEALTH_PATH}" || true
-  echo -e "\n➡️  SSE test: ${APP_URL}/api/stream?question=${STREAM_TEST_Q} (showing first 3 events)"
+  echo -e "\n➡️  SSE test: ${APP_URL}/api/stream?question=${STREAM_TEST_Q} (first few lines)"
   curl -N --max-time 10 "${APP_URL}/api/stream?question=${STREAM_TEST_Q}" | head -n 6 || true
 fi
 
 echo "✅ Done."
+
