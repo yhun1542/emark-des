@@ -27,5 +27,5 @@ COPY server/ ./
 # Frontend dist → Flask static
 COPY --from=webbuild /web/dist ./static
 ENV PORT=8000
-CMD ["gunicorn","-k","gevent","-w","1","-t","0","-b","0.0.0.0:${PORT}","app:app"]
+CMD gunicorn -k gevent -w 1 -t 0 -b 0.0.0.0:$PORT app:app
 
