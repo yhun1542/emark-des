@@ -77,7 +77,7 @@ else
 fi
 
 # Ensure debug listing once before npm run build
-if ! grep -q '--- Web stage tree ---' Dockerfile; then
+if ! grep -q "Web stage tree" Dockerfile; then
   # Insert debug RUN right before "RUN npm run build" in webbuild stage
   perl -0777 -pe 's/RUN npm run build/RUN echo \"--- Web stage tree ---\" \&\& ls -la \&\& echo \"--- src ---\" \&\& ls -la src \|\| true \&\& echo \"--- src\/lib ---\" \&\& ls -la src\/lib \|\| true \&\& echo \"--- App.tsx head ---\" \&\& head -n 20 src\/App.tsx \|\| true \n\nRUN npm run build/;' Dockerfile > Dockerfile.tmp && mv Dockerfile.tmp Dockerfile
   echo "✅ Added debug listing before Vite build"
@@ -88,16 +88,16 @@ fi
 # ---- Step 3: fix Gunicorn PORT expansion (CMD) ----
 # Replace any existing CMD line with sh -c variant that expands ${PORT}
 if grep -q '^CMD \["gunicorn' Dockerfile; then
-  perl -0777 -pe 's#^CMD \[.*gunicorn[^\n]*\]\s*$#CMD ["sh","-c","gunicorn -k gevent -w ${WORKERS:-1} --access-logfile - --error-logfile - -t 0 -b 0.0.0.0:${PORT} app:app"]#m;' Dockerfile > Dockerfile.tmp && mv Dockerfile.tmp Dockerfile
+  perl -0777 -pe 's#^CMD \[.*gunicorn[^\n]*\]\s*$#CMD ["sh","-c","gunicorn -k gevent -w \\${WORKERS:-1} --access-logfile - --error-logfile - -t 0 -b 0.0.0.0:\\${PORT} app:app"]#m;' Dockerfile > Dockerfile.tmp && mv Dockerfile.tmp Dockerfile
   echo "✅ Replaced exec-form CMD with sh -c (PORT expansion)"
 elif grep -q '^CMD \["sh","-c"' Dockerfile; then
   # Update to enforce PORT usage
-  perl -0777 -pe 's#^CMD \["sh","-c",.*\]\s*$#CMD ["sh","-c","gunicorn -k gevent -w ${WORKERS:-1} --access-logfile - --error-logfile - -t 0 -b 0.0.0.0:${PORT} app:app"]#m;' Dockerfile > Dockerfile.tmp && mv Dockerfile.tmp Dockerfile
-  echo "✅ Updated sh -c CMD to bind 0.0.0.0:${PORT}"
+  perl -0777 -pe 's#^CMD \["sh","-c",.*\]\s*$#CMD ["sh","-c","gunicorn -k gevent -w \\${WORKERS:-1} --access-logfile - --error-logfile - -t 0 -b 0.0.0.0:\\${PORT} app:app"]#m;' Dockerfile > Dockerfile.tmp && mv Dockerfile.tmp Dockerfile
+  echo "✅ Updated sh -c CMD to bind 0.0.0.0:\${PORT}"
 else
   # Append if missing
   cat >> Dockerfile <<'DOCKER'
-CMD ["sh","-c","gunicorn -k gevent -w ${WORKERS:-1} --access-logfile - --error-logfile - -t 0 -b 0.0.0.0:${PORT} app:app"]
+CMD ["sh","-c","gunicorn -k gevent -w \${WORKERS:-1} --access-logfile - --error-logfile - -t 0 -b 0.0.0.0:\${PORT} app:app"]
 DOCKER
   echo "✅ Added sh -c CMD for Gunicorn"
 fi

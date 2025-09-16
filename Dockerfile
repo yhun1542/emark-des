@@ -17,6 +17,10 @@ RUN echo "--- Web stage tree ---" && ls -la && \
 
 RUN echo "--- Web stage tree ---" && ls -la && echo "--- src ---" && ls -la src || true && echo "--- src/lib ---" && ls -la src/lib || true && echo "--- App.tsx head ---" && head -n 20 src/App.tsx || true 
 
+RUN echo "--- Web stage tree ---" && ls -la && echo "--- src ---" && ls -la src || true && echo "--- src/lib ---" && ls -la src/lib || true && echo "--- App.tsx head ---" && head -n 20 src/App.tsx || true 
+
+RUN echo "--- Web stage tree ---" && ls -la && echo "--- src ---" && ls -la src || true && echo "--- src/lib ---" && ls -la src/lib || true && echo "--- App.tsx head ---" && head -n 20 src/App.tsx || true 
+
 RUN npm run build
 
 # 2) Python runtime
@@ -31,4 +35,4 @@ COPY --from=webbuild /web/dist ./static
 ENV PORT=8000
 CMD gunicorn -k gevent -w 1 -t 0 -b 0.0.0.0:$PORT app:app
 
-CMD ["sh","-c","gunicorn -k gevent -w ${WORKERS:-1} --access-logfile - --error-logfile - -t 0 -b 0.0.0.0:${PORT} app:app"]
+CMD ["sh","-c","gunicorn -k gevent -w \ --access-logfile - --error-logfile - -t 0 -b 0.0.0.0:\ app:app"]
