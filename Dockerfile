@@ -1,7 +1,7 @@
 # 1) Build frontend
 FROM node:18-alpine AS webbuild
 WORKDIR /web
-ARG CACHE_BUST=20250916-080500
+ARG CACHE_BUST=20250916-091700
 RUN echo "CACHE_BUST=${CACHE_BUST}"
 
 COPY app/package*.json ./
@@ -15,14 +15,6 @@ RUN echo "--- Web stage tree ---" && ls -la && \
     echo "--- src/lib ---" && ls -la src/lib || true && \
     echo "--- App.tsx head ---" && head -n 20 src/App.tsx || true
 
-RUN echo "--- Web stage tree ---" && ls -la && echo "--- src ---" && ls -la src || true && echo "--- src/lib ---" && ls -la src/lib || true && echo "--- App.tsx head ---" && head -n 20 src/App.tsx || true 
-
-RUN echo "--- Web stage tree ---" && ls -la && echo "--- src ---" && ls -la src || true && echo "--- src/lib ---" && ls -la src/lib || true && echo "--- App.tsx head ---" && head -n 20 src/App.tsx || true 
-
-RUN echo "--- Web stage tree ---" && ls -la && echo "--- src ---" && ls -la src || true && echo "--- src/lib ---" && ls -la src/lib || true && echo "--- App.tsx head ---" && head -n 20 src/App.tsx || true 
-
-RUN echo "--- Web stage tree ---" && ls -la && echo "--- src ---" && ls -la src || true && echo "--- src/lib ---" && ls -la src/lib || true && echo "--- App.tsx head ---" && head -n 20 src/App.tsx || true 
-
 RUN npm run build
 
 # 2) Python runtime
@@ -35,6 +27,4 @@ COPY server/ ./
 # Frontend dist → Flask static
 COPY --from=webbuild /web/dist ./static
 ENV PORT=8000
-CMD gunicorn -k gevent -w 1 -t 0 -b 0.0.0.0:$PORT app:app
-
-CMD ["sh","-c","gunicorn -k gevent -w \ --access-logfile - --error-logfile - -t 0 -b 0.0.0.0:\ app:app"]
+CMD ["sh","-c","gunicorn -k gevent -w ${WORKERS:-1} --access-logfile - --error-logfile - -t 0 -b 0.0.0.0:${PORT} app:app"]
