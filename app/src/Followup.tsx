@@ -1,5 +1,5 @@
 import React from "react";
-import { askTop } from "./lib/api.js";
+import { askTop } from "./lib/api";
 
 export default function Followup({ session }:{ session:any }){
   const top = session?.finalRanking?.[0]?.model?.toUpperCase();

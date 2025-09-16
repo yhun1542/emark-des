@@ -1,6 +1,6 @@
 import React from "react";
 import "./styles.css";
-import { startStream } from "./lib/api.js";
+import { startStream } from "./lib/api";
 import Stepper from "./components/Stepper";
 import TeamGrid from "./components/TeamGrid";
 import Matrix from "./components/Matrix";
