@@ -3,7 +3,8 @@ FROM node:18-alpine AS webbuild
 WORKDIR /web
 COPY app/package.json app/package-lock.json* app/pnpm-lock.yaml* ./
 RUN npm i --no-audit --no-fund
-COPY app/ ./ 
+COPY app/src ./src
+COPY app/index.html app/vite.config.ts app/tailwind.config.js ./
 RUN npm run build
 
 # 2) Python runtime
