@@ -1,7 +1,7 @@
 # 1) Build frontend
 FROM node:18-alpine AS webbuild
 WORKDIR /web
-ARG CACHE_BUST=1
+ARG CACHE_BUST=20250916-080500
 RUN echo "CACHE_BUST=${CACHE_BUST}"
 
 COPY app/package*.json ./
